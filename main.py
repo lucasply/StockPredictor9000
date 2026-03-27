@@ -1,5 +1,5 @@
 from data.data_loader import load_data
-from features.feature_engineering import create_features
+from features.feature_engineering import create_features, prepare_features
 from models.train_models import train_models
 from backtesting.simulator import TradingSimulator
 from evaluation.metrics import calculate_return, sharpe_ratio
@@ -16,11 +16,8 @@ data = create_features(data)
 train = data[data['Date'] < TRAIN_SPLIT_DATE]
 test = data[data['Date'] >= TRAIN_SPLIT_DATE]
 
-X_train = train.drop(columns=["target", "Date", "Ticker"])
-y_train = train["target"]
-
-X_test = test.drop(columns=["target", "Date", "Ticker"])
-y_test = test["target"]
+X_train, y_train = prepare_features(train)
+X_test, y_test = prepare_features(test)
 
 # Train models
 models = train_models(X_train, y_train)
@@ -33,18 +30,19 @@ for name, model in models.items():
     probs = model.predict_proba(X_test)[:, 1]
 
     for i, prob in enumerate(probs):
-        prob = float(prob)
         price = float(test['Close'].iloc[i])
 
-        # Adjust thresholds slightly for more action
-        if prob > 0.55:
+        if prob > BUY_THRESHOLD:
             signal = 1
-        elif prob < 0.45:
+            confidence = prob  # scale buy size by probability
+        elif prob < SELL_THRESHOLD:
             signal = -1
+            confidence = 1 - prob  # scale sell size inversely
         else:
             signal = 0
+            confidence = 0
 
-        sim.step(price, signal)
+        sim.step(price, signal, confidence)  # <- must be inside loop
 
     history = sim.get_history()
     results[name] = history
